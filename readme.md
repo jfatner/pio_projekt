@@ -3,9 +3,9 @@
 Projekt realizowany w ramach przedmiotu **Komunikacja człowiek-komputer 2026**.
 
 ## Zespół Projektowy 
-* ** Janusz Fątner **
-* ** Piotr Michałkiewicz **
-* ** Jan Radziszowski **
+* **Janusz Fątner**
+* **Piotr Michałkiewicz**
+* **Jan Radziszowski**
 
 ## Opis projektu
 
