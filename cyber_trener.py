@@ -24,6 +24,7 @@ class BulgarianSquatTrainer:
         self.start_time = time.time()
         self.angle_up = 160
         self.angle_down = 95
+        # TODO: Dodać zapis historii treningów (np. inicjalizacja pustej listy na statystyki powtórzeń)
 
     def _tts_worker(self):
         try:
@@ -66,6 +67,7 @@ class BulgarianSquatTrainer:
 
     def run(self):
         cap = cv2.VideoCapture(0)
+        # TODO: Zaimplementować etap "Kalibracja sylwetki" przed właściwą pętlą ćwiczenia
         with self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -86,6 +88,7 @@ class BulgarianSquatTrainer:
                     try:
                         landmarks = results.pose_landmarks.landmark
 
+                        # TODO: Dodać detekcję i obsługę obu nóg (zamiast tylko zhardcodowanej lewej LEFT_...)
                         shoulder = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
                                     landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
                         hip = [landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].x,
@@ -99,6 +102,9 @@ class BulgarianSquatTrainer:
 
                         knee_angle = self.calculate_angle(hip, knee, ankle)
                         torso_lean_angle = self.calculate_torso_lean(shoulder, hip)
+
+                        # TODO: Dodać monitorowanie stabilności miednicy (skręty i boczne wychylenia)
+                        # TODO: Monitorowanie nogi pod kątem koślawienia (zapadanie kolana do wewnątrz)
 
                         ref_length = self.calculate_distance(shoulder, hip)
                         if ref_length == 0:
@@ -115,7 +121,7 @@ class BulgarianSquatTrainer:
                             elif knee_ankle_x_diff_rel > 0.3:
                                 current_error_msg = "Utrzymaj stabilne kolano!"
                             elif self.state in ["W_DOL", "DOL"] and distance_knee_toe_rel > 0.2:
-                                current_error_msg = "Wydłuż krok!"
+                                current_error_msg = "Wydluz krok!"
 
                             if current_error_msg:
                                 self.current_rep_valid = False
@@ -126,7 +132,7 @@ class BulgarianSquatTrainer:
 
                         if self.state == "POWITANIE":
                             if time.time() - self.start_time > 3.0 and not self.is_greeting_done:
-                                self.speak("Cześć! Ustaw się do przysiadu bułgarskiego. Zaczynamy!", force=True)
+                                self.speak("Czesc! Ustaw sie do przysiadu bulgarskiego. Zaczynamy!", force=True)
                                 self.is_greeting_done = True
                                 self.state = "GORA"
                         elif self.state == "GORA":
@@ -136,7 +142,7 @@ class BulgarianSquatTrainer:
                             if knee_angle <= self.angle_down:
                                 self.state = "DOL"
                                 if self.current_rep_valid:
-                                    self.speak("Dobry dół, teraz w górę!")
+                                    self.speak("Dobry dol, teraz w gore!")
                             elif knee_angle > self.angle_up:
                                 self.state = "GORA"
                         elif self.state == "DOL":
@@ -146,9 +152,9 @@ class BulgarianSquatTrainer:
                             if knee_angle >= self.angle_up:
                                 if self.current_rep_valid:
                                     self.counter += 1
-                                    self.speak(f"Pięknie, {self.counter}")
+                                    self.speak(f"Pieknie, {self.counter}")
                                 else:
-                                    self.speak("Powtórzenie spalone. Skup się i zacznij jeszcze raz.")
+                                    self.speak("Powtorzenie spalone. Skup sie i zacznij jeszcze raz.")
                                 self.current_rep_valid = True
                                 self.state = "GORA"
 
@@ -163,6 +169,10 @@ class BulgarianSquatTrainer:
                             cv2.LINE_AA)
                 cv2.putText(image, 'FAZA RUCHU', (150, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
                 cv2.putText(image, self.state, (150, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
+                            cv2.LINE_AA)
+
+                # --- NOWA ZMIANA WIZUALNA: Nagłówek projektu ---
+                cv2.putText(image, 'CYBER-TRENER', (w - 200, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
                             cv2.LINE_AA)
 
                 if current_error_msg:
@@ -189,6 +199,7 @@ class BulgarianSquatTrainer:
                 if cv2.waitKey(10) & 0xFF == ord('q'):
                     break
 
+        # TODO: Tutaj obsługa zapisu logów/plików ze statystykami tuż przed zamknięciem programu
         self.tts_queue.put(None)
         cap.release()
         cv2.destroyAllWindows()
