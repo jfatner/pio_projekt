@@ -24,7 +24,9 @@ class BulgarianSquatTrainer:
         self.start_time = time.time()
         self.angle_up = 160
         self.angle_down = 95
-        # TODO: Dodać zapis historii treningów (np. inicjalizacja pustej listy na statystyki powtórzeń)
+
+        # ZROBIONE TODO: Zapis historii treningów (inicjalizacja pustej listy)
+        self.trening_log = []
 
     def _tts_worker(self):
         try:
@@ -153,6 +155,9 @@ class BulgarianSquatTrainer:
                                 if self.current_rep_valid:
                                     self.counter += 1
                                     self.speak(f"Pieknie, {self.counter}")
+                                    # ZROBIONE TODO: Dodanie wpisu do logu
+                                    self.trening_log.append(
+                                        f"Poprawne powtorzenie nr {self.counter} o {time.strftime('%H:%M:%S')}")
                                 else:
                                     self.speak("Powtorzenie spalone. Skup sie i zacznij jeszcze raz.")
                                 self.current_rep_valid = True
@@ -171,7 +176,6 @@ class BulgarianSquatTrainer:
                 cv2.putText(image, self.state, (150, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
                             cv2.LINE_AA)
 
-                # --- NOWA ZMIANA WIZUALNA: Nagłówek projektu ---
                 cv2.putText(image, 'CYBER-TRENER', (w - 200, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
                             cv2.LINE_AA)
 
@@ -199,7 +203,14 @@ class BulgarianSquatTrainer:
                 if cv2.waitKey(10) & 0xFF == ord('q'):
                     break
 
-        # TODO: Tutaj obsługa zapisu logów/plików ze statystykami tuż przed zamknięciem programu
+        # ZROBIONE TODO: Zapis statystyk do pliku txt tuż przed zamknięciem programu
+        if self.counter > 0:
+            with open("historia_treningow.txt", "a") as f:
+                f.write(f"\n--- Trening z dnia {time.strftime('%Y-%m-%d')} ---\n")
+                for wpis in self.trening_log:
+                    f.write(wpis + "\n")
+                f.write(f"Zakonczono z wynikiem: {self.counter} powtorzen.\n")
+
         self.tts_queue.put(None)
         cap.release()
         cv2.destroyAllWindows()
