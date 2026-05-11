@@ -22,11 +22,16 @@ class BulgarianSquatTrainer:
         self.feedback_cooldown = 1.5
         self.is_greeting_done = False
         self.start_time = time.time()
-        self.angle_up = 160
-        self.angle_down = 95
 
-        # ZROBIONE TODO: Zapis historii treningów (inicjalizacja pustej listy)
+        # Płytszy przysiad (110 stopni) dla łatwiejszego zaliczenia ruchu
+        self.angle_up = 160
+        self.angle_down = 110
+
         self.trening_log = []
+
+        # Inicjalizacja słownika do wygładzania ruchów (EMA filter)
+        self.smoothed_landmarks = {}
+        self.alpha = 0.5  # Współczynnik wygładzania (0.1 - bardzo powolne, 0.9 - bardzo szybkie)
 
     def _tts_worker(self):
         try:
@@ -59,9 +64,16 @@ class BulgarianSquatTrainer:
             angle = 360 - angle
         return angle
 
-    @staticmethod
-    def calculate_distance(p1, p2):
-        return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+    # Funkcja wygładzająca trzęsące się punkty (Exponential Moving Average)
+    def smooth_landmark(self, name, current_pt):
+        if name not in self.smoothed_landmarks:
+            self.smoothed_landmarks[name] = current_pt
+        else:
+            self.smoothed_landmarks[name] = [
+                self.alpha * current_pt[0] + (1 - self.alpha) * self.smoothed_landmarks[name][0],
+                self.alpha * current_pt[1] + (1 - self.alpha) * self.smoothed_landmarks[name][1]
+            ]
+        return self.smoothed_landmarks[name]
 
     def calculate_torso_lean(self, shoulder, hip):
         vertical_pt = [hip[0], hip[1] - 1.0]
@@ -69,8 +81,13 @@ class BulgarianSquatTrainer:
 
     def run(self):
         cap = cv2.VideoCapture(0)
-        # TODO: Zaimplementować etap "Kalibracja sylwetki" przed właściwą pętlą ćwiczenia
-        with self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
+
+        # ZWIĘKSZONA PEWNOŚĆ MODELU:
+        # min_tracking_confidence na 0.7 (zapobiega gubieniu kończyn przy dziwnych pozach)
+        # model_complexity=1 (możesz zmienić na 2, jeśli masz bardzo mocny komputer i nadal będzie gubić punkty)
+        with self.mp_pose.Pose(min_detection_confidence=0.5,
+                               min_tracking_confidence=0.7,
+                               model_complexity=1) as pose:
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
@@ -85,52 +102,69 @@ class BulgarianSquatTrainer:
                 progress_val = 0
                 current_error_msg = None
                 h, w, _ = image.shape
+                aktywna_noga = "BRAK"
 
                 if results.pose_landmarks:
                     try:
                         landmarks = results.pose_landmarks.landmark
 
-                        # TODO: Dodać detekcję i obsługę obu nóg (zamiast tylko zhardcodowanej lewej LEFT_...)
-                        shoulder = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
-                                    landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
-                        hip = [landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].x,
-                               landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].y]
-                        knee = [landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].x,
-                                landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].y]
-                        ankle = [landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].x,
-                                 landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
-                        toe = [landmarks[self.mp_pose.PoseLandmark.LEFT_FOOT_INDEX.value].x,
-                               landmarks[self.mp_pose.PoseLandmark.LEFT_FOOT_INDEX.value].y]
+                        # Sprawdzenie orientacji ciała
+                        left_hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
+                        right_hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value]
+
+                        # Wybór odpowiednich punktów w zależności od tego, którym bokiem stoimy do kamery
+                        if right_hip.z < left_hip.z:
+                            aktywna_noga = "PRAWA NOGA"
+                            # Weryfikacja widoczności - zapobiega błędom, gdy obiektyw nie widzi np. stopy
+                            if landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].visibility < 0.4 or \
+                                    landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value].visibility < 0.4:
+                                raise ValueError("Punkty slabo widoczne")
+
+                            raw_shoulder = [landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x,
+                                            landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
+                            raw_hip = [landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].x,
+                                       landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+                            raw_knee = [landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value].x,
+                                        landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
+                            raw_ankle = [landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value].x,
+                                         landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
+                        else:
+                            aktywna_noga = "LEWA NOGA"
+                            if landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].visibility < 0.4 or \
+                                    landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].visibility < 0.4:
+                                raise ValueError("Punkty slabo widoczne")
+
+                            raw_shoulder = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
+                                            landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+                            raw_hip = [landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].x,
+                                       landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value].y]
+                            raw_knee = [landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].x,
+                                        landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE.value].y]
+                            raw_ankle = [landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].x,
+                                         landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
+
+                        # Przepuszczenie punktów przez filtr wygładzający (likwidacja drgań kamery/modelu)
+                        shoulder = self.smooth_landmark("shoulder", raw_shoulder)
+                        hip = self.smooth_landmark("hip", raw_hip)
+                        knee = self.smooth_landmark("knee", raw_knee)
+                        ankle = self.smooth_landmark("ankle", raw_ankle)
 
                         knee_angle = self.calculate_angle(hip, knee, ankle)
                         torso_lean_angle = self.calculate_torso_lean(shoulder, hip)
 
-                        # TODO: Dodać monitorowanie stabilności miednicy (skręty i boczne wychylenia)
-                        # TODO: Monitorowanie nogi pod kątem koślawienia (zapadanie kolana do wewnątrz)
-
-                        ref_length = self.calculate_distance(shoulder, hip)
-                        if ref_length == 0:
-                            ref_length = 0.01
-
-                        knee_ankle_x_diff_rel = abs(knee[0] - ankle[0]) / ref_length
-                        distance_knee_toe_rel = abs(knee[0] - toe[0]) / ref_length
-
                         progress_val = np.interp(knee_angle, [self.angle_down, self.angle_up], [100, 0])
 
                         if self.state != "POWITANIE":
-                            if torso_lean_angle > 45.0:
+                            # USUNĘLIŚMY restrykcje dla kolana - zostawiamy tylko skrajny opad tułowia (powyżej 75 stopni!)
+                            if torso_lean_angle > 75.0:
                                 current_error_msg = "Wyprostuj plecy!"
-                            elif knee_ankle_x_diff_rel > 0.3:
-                                current_error_msg = "Utrzymaj stabilne kolano!"
-                            elif self.state in ["W_DOL", "DOL"] and distance_knee_toe_rel > 0.2:
-                                current_error_msg = "Wydluz krok!"
 
-                            if current_error_msg:
-                                self.current_rep_valid = False
-                                current_time = time.time()
-                                if current_time - self.last_feedback_time > self.feedback_cooldown:
-                                    self.speak(current_error_msg)
-                                    self.last_feedback_time = current_time
+                        if current_error_msg:
+                            self.current_rep_valid = False
+                            current_time = time.time()
+                            if current_time - self.last_feedback_time > self.feedback_cooldown:
+                                self.speak(current_error_msg)
+                                self.last_feedback_time = current_time
 
                         if self.state == "POWITANIE":
                             if time.time() - self.start_time > 3.0 and not self.is_greeting_done:
@@ -155,7 +189,6 @@ class BulgarianSquatTrainer:
                                 if self.current_rep_valid:
                                     self.counter += 1
                                     self.speak(f"Pieknie, {self.counter}")
-                                    # ZROBIONE TODO: Dodanie wpisu do logu
                                     self.trening_log.append(
                                         f"Poprawne powtorzenie nr {self.counter} o {time.strftime('%H:%M:%S')}")
                                 else:
@@ -163,10 +196,14 @@ class BulgarianSquatTrainer:
                                 self.current_rep_valid = True
                                 self.state = "GORA"
 
-                    except Exception:
+                    except ValueError:
+                        # Przechwytuje moment, gdy kamera źle nas widzi - ignoruje klatkę bez niszczenia wyniku
+                        pass
+                    except Exception as e:
+                        print(e)
                         pass
 
-                    self.mp_drawing.draw_landmarks(image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+                self.mp_drawing.draw_landmarks(image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
 
                 cv2.rectangle(image, (0, 0), (300, 73), (245, 117, 16), -1)
                 cv2.putText(image, 'POWTORZENIA', (15, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
@@ -178,6 +215,8 @@ class BulgarianSquatTrainer:
 
                 cv2.putText(image, 'CYBER-TRENER', (w - 200, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
                             cv2.LINE_AA)
+                cv2.putText(image, f'SLEDZONA: {aktywna_noga}', (w - 200, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (0, 255, 0), 1, cv2.LINE_AA)
 
                 if current_error_msg:
                     cv2.putText(image, current_error_msg, (15, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2,
@@ -194,6 +233,8 @@ class BulgarianSquatTrainer:
                 fill_height = int(bar_max_height * (progress_val / 100.0))
                 bar_color = (0, 0, 255) if not self.current_rep_valid else (0, 255, 0)
 
+                fill_height = max(0, min(fill_height, bar_max_height))
+
                 cv2.rectangle(image, (bar_x, bar_y_end - fill_height), (bar_x + 30, bar_y_end), bar_color, -1)
                 cv2.putText(image, f"{int(progress_val)}%", (bar_x - 50, bar_y_end - fill_height + 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -203,7 +244,6 @@ class BulgarianSquatTrainer:
                 if cv2.waitKey(10) & 0xFF == ord('q'):
                     break
 
-        # ZROBIONE TODO: Zapis statystyk do pliku txt tuż przed zamknięciem programu
         if self.counter > 0:
             with open("historia_treningow.txt", "a") as f:
                 f.write(f"\n--- Trening z dnia {time.strftime('%Y-%m-%d')} ---\n")
