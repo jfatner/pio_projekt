@@ -4,66 +4,62 @@ import numpy as np
 import pyttsx3
 import threading
 import time
-import queue
 
 
 class BulgarianSquatTrainer:
     def __init__(self):
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_pose = mp.solutions.pose
-        self.tts_queue = queue.Queue()
-        self.is_speaking = False  
-        self.tts_thread = threading.Thread(target=self._tts_worker, daemon=True)
-        self.tts_thread.start()
+        
+        # Nowy, niezawodny system blokady mowy (zastępuje awaryjną kolejkę Queue)
+        self.speech_lock = threading.Lock()
+        
         self.state = "POWITANIE"
         self.counter = 0
         self.current_rep_valid = True
         
-        # Koszyk błędów - wypowiemy je na koniec ruchu
         self.errors_this_rep = set() 
-        
         self.last_feedback_time = 0
         self.is_greeting_done = False
         self.start_time = time.time()
 
-        # Zmienione kąty na bardziej naturalne dla anatomii!
-        self.angle_up = 145    # Wyprost zaliczony już przy 145 stopniach (wcześniej 160)
-        self.angle_down = 110  # Głębokość przysiadu
+        self.angle_up = 140    
+        self.angle_down = 110  
 
         self.trening_log = []
         self.smoothed_landmarks = {}
         self.alpha = 0.5 
 
-    def _tts_worker(self):
-        try:
-            import pythoncom
-            pythoncom.CoInitialize()
-        except ImportError:
-            pass
-        
-        while True:
-            text = self.tts_queue.get()
-            if text is None:
-                break
-            
-            self.is_speaking = True 
+    def speak(self, text, force=False):
+        # Jeśli lektor nic nie mówi (lub wymuszamy komunikat)
+        if not self.speech_lock.locked() or force:
+            print(f"[TRENER MÓWI]: {text}") 
+            # Odpalamy całkowicie oddzielny wątek dla każdego zdania
+            threading.Thread(target=self._speak_task, args=(text,), daemon=True).start()
+
+    def _speak_task(self, text):
+        # Ten lock sprawia, że jeśli program ma do powiedzenia 2 zdania na raz, to poczeka i powie je po kolei
+        with self.speech_lock:
+            # 1. PRÓBA BEZPOŚREDNIA WINDOWS SAPI (Zupełnie omija błędy pyttsx3 zawieszającego się przez kamerę)
             try:
-                # Inicjalizacja co każde słowo zapobiega zacięciu pyttsx3 w tle
+                import pythoncom
+                import win32com.client
+                pythoncom.CoInitialize() 
+                speaker = win32com.client.Dispatch("SAPI.SpVoice")
+                speaker.Rate = 2 # Tempo od -10 do 10
+                speaker.Speak(text)
+                return # Sukces, kończymy wątek
+            except Exception:
+                pass # Jeśli to nie Windows, idzie dalej do opcji awaryjnej
+            
+            # 2. OPCJA AWARYJNA (Linux/Mac)
+            try:
                 engine = pyttsx3.init()
-                engine.setProperty('rate', 160)
+                engine.setProperty('rate', 170)
                 engine.say(text)
                 engine.runAndWait()
-                del engine
             except Exception as e:
-                print(f"Blad glosu: {e}")
-                
-            self.is_speaking = False 
-            self.tts_queue.task_done()
-
-    def speak(self, text, force=False):
-        if (self.tts_queue.empty() and not self.is_speaking) or force:
-            self.tts_queue.put(text)
-            print(f"[TRENER MÓWI]: {text}") # Wypisuje do konsoli, żebyś wiedział co się dzieje
+                print(f"Błąd awaryjnego systemu TTS: {e}")
 
     @staticmethod
     def calculate_angle(a, b, c):
@@ -88,7 +84,6 @@ class BulgarianSquatTrainer:
         return self.smoothed_landmarks[key]
 
     def calculate_torso_lean(self, shoulder, hip):
-        # Odniesienie pionowe musi być w pikselach (-100 pikseli w górę po osi Y)
         vertical_pt = [hip[0], hip[1] - 100.0]
         return self.calculate_angle(shoulder, hip, vertical_pt)
 
@@ -122,7 +117,7 @@ class BulgarianSquatTrainer:
                         left_ankle_lm = landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value]
                         right_ankle_lm = landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-                        # PRZELICZENIE NA PIKSELE - to rozwiązuje błąd matematyczny związany z prostokątnym ekranem!
+                        # Obliczanie koordynatów
                         if right_ankle_lm.y > left_ankle_lm.y:
                             aktywna_noga = "PRAWA NOGA"
                             if landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value].visibility < 0.4 or \
@@ -162,15 +157,14 @@ class BulgarianSquatTrainer:
 
                         progress_val = np.interp(knee_angle, [self.angle_down, self.angle_up], [100, 0])
 
-                        # Wykrywanie błędu postawy
                         if self.state not in ["POWITANIE", "GORA"]:
-                            # Znacznie niższy próg pochylenia, by łatwiej wyłapać błąd w warunkach domowych
-                            if torso_lean_angle > 35.0:
+                            # Opad tułowia (garbienie się)
+                            if torso_lean_angle > 40.0:
                                 self.current_rep_valid = False
                                 self.errors_this_rep.add("Wyprostuj plecy!")
                                 ui_error_msg = "Wyprostuj plecy!" 
 
-                        # --- PANZERNA MASZYNA STANÓW ---
+                        # --- LOGIKA RUCHU ---
                         if self.state == "POWITANIE":
                             if time.time() - self.start_time > 3.0 and not self.is_greeting_done:
                                 self.speak("Czesc! Ustaw sie do przysiadu bulgarskiego. Zaczynamy!", force=True)
@@ -185,7 +179,6 @@ class BulgarianSquatTrainer:
                             if knee_angle <= self.angle_down:
                                 self.state = "DOL"
                             elif knee_angle >= self.angle_up + 5:
-                                # Ktoś zrobił "półprzysiad" i wrócił do góry
                                 blad_msg = " ".join(self.errors_this_rep)
                                 self.speak(f"Niepelny przysiad! {blad_msg}", force=True)
                                 self.state = "GORA"
@@ -198,7 +191,7 @@ class BulgarianSquatTrainer:
                                 
                         elif self.state == "W_GORE":
                             if knee_angle >= self.angle_up:
-                                # POWRÓT DO GÓRY (Koniec pełnego powtórzenia)
+                                # Koniec powtórzenia - OCENA RUCHU
                                 if self.current_rep_valid:
                                     self.counter += 1
                                     self.speak(f"Pieknie, {self.counter}", force=True)
@@ -212,7 +205,6 @@ class BulgarianSquatTrainer:
                                 self.state = "GORA"
                                 
                             elif knee_angle < self.angle_down + 5:
-                                # Przerwał wstawanie i znowu kuca - Reset z reprymendą!
                                 self.speak("Zepsuty ruch!", force=True)
                                 self.current_rep_valid = True
                                 self.errors_this_rep.clear()
@@ -266,7 +258,6 @@ class BulgarianSquatTrainer:
                     f.write(wpis + "\n")
                 f.write(f"Zakonczono z wynikiem: {self.counter} powtorzen.\n")
 
-        self.tts_queue.put(None)
         cap.release()
         cv2.destroyAllWindows()
 
