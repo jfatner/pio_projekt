@@ -80,7 +80,7 @@ class BulgarianSquatTrainer:
         return self.calculate_angle(shoulder, hip, vertical_pt)
 
     def run(self):
-        cap = cv2.VideoCapture(1) # 1 - kamera zewnetrzna 0 - wbudowana
+        cap = cv2.VideoCapture(0)  # 1 - kamera zewnetrzna 0 - wbudowana
 
         # ZWIĘKSZONA PEWNOŚĆ MODELU:
         # min_tracking_confidence na 0.7 (zapobiega gubieniu kończyn przy dziwnych pozach)
@@ -92,6 +92,9 @@ class BulgarianSquatTrainer:
                 ret, frame = cap.read()
                 if not ret:
                     break
+
+                # Odbicie lustrzane obrazu w poziomie
+                frame = cv2.flip(frame, 1)
 
                 image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image.flags.writeable = False
