@@ -50,60 +50,59 @@ graph TD
     
     UC3 --> In3(<< include >> Zapis historii do pliku)
 
-
 classDiagram
     class BulgarianSquatTrainer {
-        -pose_detector: PoseDetector
-        -state_machine: SquatStateMachine
-        -validator: BiomechanicalValidator
-        -logger: TrainingLogger
-        -ui_manager: UIManager
-        -speech_synthesizer: SpeechSynthesizer
+        -PoseDetector pose_detector
+        -SquatStateMachine state_machine
+        -BiomechanicalValidator validator
+        -TrainingLogger logger
+        -UIManager ui_manager
+        -SpeechSynthesizer speech_synthesizer
         +run() void
     }
 
     class PoseDetector {
-        -mp_pose: mp.solutions.pose
-        -smoothed_landmarks: dict
-        -alpha: float
-        +process_frame(frame) dict
-        +smooth_landmark(name, current_pt, side) list
-        +calculate_angle(a, b, c) float
+        -Object mp_pose
+        -dict smoothed_landmarks
+        -float alpha
+        +process_frame(frame)
+        +smooth_landmark(name, current_pt, side)
+        +calculate_angle(a, b, c)
     }
 
     class BiomechanicalValidator {
-        +calculate_torso_lean(shoulder, hip) float
-        +check_pelvic_stability(left_hip, right_hip) tuple
-        +calculate_knee_valgus(hip, knee, ankle) float
+        +calculate_torso_lean(shoulder, hip)
+        +check_pelvic_stability(left_hip, right_hip)
+        +calculate_knee_valgus(hip, knee, ankle)
     }
 
     class SquatStateMachine {
-        +state: String
-        +counter: int
-        +current_rep_valid: bool
-        +errors_this_rep: set
-        +angle_up: int
-        +angle_down: int
-        +ref_torso_lean: float
-        +calibrate_thresholds(standing_knee, standing_torso) void
-        +update_state(knee_angle, current_torso, pelvis_stable, is_valgus) void
+        +String state
+        +int counter
+        +bool current_rep_valid
+        +set errors_this_rep
+        +int angle_up
+        +int angle_down
+        +float ref_torso_lean
+        +calibrate_thresholds(standing_knee, standing_torso)
+        +update_state(knee_angle, current_torso, pelvis_stable, is_valgus)
     }
 
     class SpeechSynthesizer {
-        -speech_lock: Threading.Lock
-        +speak(text, force) void
-        -_speak_task(text) void
+        -Lock speech_lock
+        +speak(text, force)
+        -_speak_task(text)
     }
 
     class TrainingLogger {
-        -file_path: String
-        +save_logs(counter, log_list) void
+        -String file_path
+        +save_logs(counter, log_list)
     }
 
     class UIManager {
-        +draw_skeleton(image, landmarks) void
-        +draw_dashboard(image, state, counter, progress) void
-        +draw_error_banner(image, message) void
+        +draw_skeleton(image, landmarks)
+        +draw_dashboard(image, state, counter, progress)
+        +draw_error_banner(image, message)
     }
 
     BulgarianSquatTrainer *-- PoseDetector
@@ -112,7 +111,6 @@ classDiagram
     BulgarianSquatTrainer *-- SpeechSynthesizer
     BulgarianSquatTrainer *-- TrainingLogger
     BulgarianSquatTrainer *-- UIManager
-
 
 graph TD
     subgraph Stacja_Robocza_PC [Komputer Użytkownika PC/Laptop]
