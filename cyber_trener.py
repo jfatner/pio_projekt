@@ -27,8 +27,10 @@ class BulgarianSquatTrainer:
         self.stop_pose_timer = 0
         self.start_time = 0
 
-        self.angle_up = 140
-        self.angle_down = 110
+        # Dynamiczne progi (zostaną nadpisane podczas kalibracji)
+        self.angle_up = None
+        self.angle_down = None
+        self.ref_torso_lean = 0.0
 
         self.trening_log = []
         self.smoothed_landmarks = {}
@@ -86,6 +88,39 @@ class BulgarianSquatTrainer:
         vertical_pt = [hip[0], hip[1] - 100.0]
         return self.calculate_angle(shoulder, hip, vertical_pt)
 
+    def check_pelvic_stability(self, left_hip, right_hip):
+        """Analizuje asymetrię miednicy pod kątem opadania (Y) i skrętu (Z)"""
+        # 1. Sprawdzenie opadania / asymetrii wysokości miednicy (oś Y)
+        hip_drop = abs(left_hip.y - right_hip.y)
+        
+        # 2. Sprawdzenie rotacji / skrętu bioder w osi pionowej (oś Z)
+        hip_twist = abs(left_hip.z - right_hip.z)
+        
+        if hip_drop > 0.06:   # Próg tolerancji dla różnicy wysokości bioder
+            return False, "Krzywe biodra!"
+        if hip_twist > 0.12:  # Próg tolerancji dla skrętu tułowia
+            return False, "Nie skrecaj bioder!"
+            
+        return True, None
+
+    def calculate_knee_valgus(self, hip, knee, ankle):
+        """Mierzy odchylenie kolana od osi biodro-kostka w płaszczyźnie czołowej (oś X)"""
+        line_vec = np.array(ankle) - np.array(hip)
+        knee_vec = np.array(knee) - np.array(hip)
+        
+        line_len = np.linalg.norm(line_vec)
+        if line_len == 0:
+            return 0
+        line_unit_vec = line_vec / line_len
+        
+        # Rzutowanie wektora kolana na oś biodro-kostka
+        projection_len = np.dot(knee_vec, line_unit_vec)
+        closest_point = np.array(hip) + projection_len * line_unit_vec
+        
+        # Lateralne odchylenie na ekranie (w pikselach)
+        deviation = knee[0] - closest_point[0]
+        return deviation
+
     def run(self):
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -126,7 +161,7 @@ class BulgarianSquatTrainer:
                         left_ankle_lm = landmarks[self.mp_pose.PoseLandmark.LEFT_ANKLE.value]
                         right_ankle_lm = landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-                        # Punkty do wykrywania gestów
+                        # Punkty do wykrywania gestów i stabilizacji
                         left_wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value]
                         right_wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST.value]
                         left_eye = landmarks[self.mp_pose.PoseLandmark.LEFT_EYE.value]
@@ -134,6 +169,7 @@ class BulgarianSquatTrainer:
                         left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
                         right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
                         left_hip_lm = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
+                        right_hip_lm = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value]
 
                         # --- DETEKCJA GESTU: START (Ręce w górę) ---
                         if self.state == "CZEKA NA START":
@@ -148,6 +184,27 @@ class BulgarianSquatTrainer:
                                     gesture_type = "START"
 
                                     if elapsed > self.gesture_hold_time:
+                                        # --- DYNAMICZNA KALIBRACJA SYLWETKI ---
+                                        is_right = right_ankle_lm.y > left_ankle_lm.y
+                                        s_sub = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value if is_right else self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+                                        h_sub = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP.value if is_right else self.mp_pose.PoseLandmark.LEFT_HIP.value]
+                                        k_sub = landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE.value if is_right else self.mp_pose.PoseLandmark.LEFT_KNEE.value]
+                                        a_sub = landmarks[self.mp_pose.PoseLandmark.RIGHT_ANKLE.value if is_right else self.mp_pose.PoseLandmark.LEFT_ANKLE.value]
+                                        
+                                        p_shoulder = [s_sub.x * w, s_sub.y * h]
+                                        p_hip = [h_sub.x * w, h_sub.y * h]
+                                        p_knee = [k_sub.x * w, k_sub.y * h]
+                                        p_ankle = [a_sub.x * w, a_sub.y * h]
+                                        
+                                        current_standing_knee = self.calculate_angle(p_hip, p_knee, p_ankle)
+                                        self.ref_torso_lean = self.calculate_torso_lean(p_shoulder, p_hip)
+                                        
+                                        # Wyznaczenie zindywidualizowanych progów ruchu
+                                        self.angle_up = int(current_standing_knee - 5)
+                                        self.angle_down = int(current_standing_knee - 55)
+                                        
+                                        print(f"[SYSTEM CALIBRATION]: Kat gora={self.angle_up}, Kat dol={self.angle_down}, Ref. Plecy={self.ref_torso_lean:.1f}")
+                                        
                                         self.state = "POWITANIE"
                                         self.start_time = time.time()
                                         self.start_pose_timer = 0
@@ -218,15 +275,40 @@ class BulgarianSquatTrainer:
                             knee_angle = self.calculate_angle(hip, knee, ankle)
                             torso_lean_angle = self.calculate_torso_lean(shoulder, hip)
 
+                            # MONITOROWANIE STABILNOŚCI MIEDNICY
+                            pelvis_stable, pelvis_error = self.check_pelvic_stability(left_hip_lm, right_hip_lm)
+
+                            # DETEKCJA KOŚLAWIENIA KOLANA (VALGUS)
+                            knee_deviation = self.calculate_knee_valgus(hip, knee, ankle)
+                            is_valgus = False
+                            # Na zflipowanym obrazie środek ciała dla PRAWEJ nogi jest przy mniejszym X, dla LEWEJ przy większym X
+                            if aktywna_noga == "PRAWA NOGA" and knee_deviation < -35:
+                                is_valgus = True
+                            elif aktywna_noga == "LEWA NOGA" and knee_deviation > 35:
+                                is_valgus = True
+
                             progress_val = np.interp(knee_angle, [self.angle_down, self.angle_up], [100, 0])
 
                             if self.state not in ["POWITANIE", "GORA"]:
-                                if torso_lean_angle > 40.0:
+                                # Weryfikacja pochylenia w odniesieniu do pozycji bazowej
+                                if abs(torso_lean_angle - self.ref_torso_lean) > 30.0:
                                     self.current_rep_valid = False
                                     self.errors_this_rep.add("Wyprostuj plecy!")
                                     ui_error_msg = "WYPROSTUJ PLECY!"
+                                    
+                                # Walidacja stabilności bioder
+                                if not pelvis_stable:
+                                    self.current_rep_valid = False
+                                    self.errors_this_rep.add(pelvis_error)
+                                    ui_error_msg = pelvis_error.upper()
 
-                                    # Fazy Ruchu
+                                # Walidacja koślawienia kolana
+                                if is_valgus:
+                                    self.current_rep_valid = False
+                                    self.errors_this_rep.add("Kolano do zewnatrz!")
+                                    ui_error_msg = "KOLANO UCIEKA DO SRODKA!"
+
+                            # Fazy Ruchu
                             if self.state == "POWITANIE":
                                 if time.time() - self.start_time > 3.0 and not self.is_greeting_done:
                                     self.speak("Czesc! Ustaw sie do przysiadu. Zaczynamy!", force=True)
