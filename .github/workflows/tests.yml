@@ -31,4 +31,4 @@ jobs:
 
     - name: Uruchom testy jednostkowe
       run: |
-        pytest
+        python -m pytest
