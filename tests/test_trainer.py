@@ -17,7 +17,7 @@ def test_pelvic_stability_detects_hip_drop():
     left_hip = MockLandmark(y=0.5, z=0.0)
     right_hip = MockLandmark(y=0.61, z=0.0)
     
-    stable, error_msg = BulgarianSquatTrainer().check_pelvic_stability(left_hip, right_hip)
+    stable, error_msg = BulgarianSquatTrainer.check_pelvic_stability(None, left_hip, right_hip)
     
     assert stable is False
     assert error_msg == "Krzywe biodra!"
