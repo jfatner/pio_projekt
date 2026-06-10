@@ -22,9 +22,7 @@ Wersja PRO wprowadza dynamiczną kalibrację anatomiczną oraz zaawansowaną kon
 
 ### Odnośniki do źródeł wiedzy biomechanicznej
 Logika biznesowa systemu została oparta na poniższych publikacjach naukowych:
-* *Biomechanics of the Single-Leg Squat and Bulgarian Split Squat:* [National Strength and Conditioning Association (NSCA)](https://www.nsca.com)
-* *Knee valgus and pelvic drop in unilateral lower extremity exercises:* [Journal of Sports Science & Medicine](https://www.jssm.org)
-
+* TO BE UPDATED *
 ---
 
 ## 2. Diagram Przypadków Użycia (Use Case Diagram)
