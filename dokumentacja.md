@@ -37,3 +37,8 @@ Logika biznesowa systemu została oparta na poniższych publikacjach naukowych:
 
 ## 4. Diagram Wdrożenia (Deployment Diagram)
 ![Diagram Wdrożenia](wdrozenie.png)
+
+---
+
+## 5. Diagram Przepływu Danych (Data Flow Diagram)
+![Diagram Przepływu Danych](data_flow.png)
