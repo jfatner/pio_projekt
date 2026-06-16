@@ -8,7 +8,7 @@ Aplikacja służy do automatycznego monitorowania, oceny i zliczania powtórzeń
 * **Stop systemu:** Skrzyżowanie rąk na klatce piersiowej (nadgarstki blisko siebie, poniżej linii ramion i powyżej bioder) przez 2 sekundy kończy trening i zapisuje historię sesji.
 
 ### Algorytmy walidacji postawy i progi tolerancji
-Wersja PRO wprowadza dynamiczną kalibrację anatomiczną oraz zaawansowaną kontrolę stabilizacji wielopłaszczyznowej:
+Wersja  wprowadza dynamiczną kalibrację anatomiczną oraz zaawansowaną kontrolę stabilizacji wielopłaszczyznowej:
 
 1. **Dynamiczna Kalibracja Zakresu Ruchu:** Podczas startu system mierzy naturalny kąt stania użytkownika (K_stand). Na tej podstawie wyliczane są indywidualne progi:
    * **Faza górna (GÓRA):** Kąt w kolanie >= K_stand - 5°
@@ -21,8 +21,10 @@ Wersja PRO wprowadza dynamiczną kalibrację anatomiczną oraz zaawansowaną kon
    Mierzone jest lateralne odchylenie kolana od osi biodro-kostka w płaszczyźnie czołowej (Oś X). Przekroczenie progu 35 pikseli do wewnątrz generuje alert *"Kolano ucieka do środka!"*.
 
 ### Odnośniki do źródeł wiedzy biomechanicznej
-Logika biznesowa systemu została oparta na poniższych publikacjach naukowych:
-* TO BE UPDATED *
+Logikę działania aplikacji i progi kątowe ustaliliśmy na podstawie analizy profesjonalnych filmów instruktażowych dla trenerów fitness oraz nagrań poprawnej techniki ćwiczeń.
+•	Liczenie przysiadów (Kąt w kolanie): Na filmach widać, że pełny, poprawny przysiad następuje, gdy udo jest równolegle do podłogi – w kodzie odpowiada to wartości 110 stopni (faza dolna). Z kolei powrót do stania następuje przy 140 stopniach (faza górna). Taki zakres gwarantuje, że ćwiczenie jest zrobione dokładnie i nie obciąża za mocno kolana.
+•	Proste plecy (Pochylenie tułowia): Najczęstszym błędem na filmikach było "garbienie się" i rzucanie ciężaru ciała za mocno w przód. W kodzie ustawiliśmy zabezpieczenie: jeśli ćwiczący pochyli plecy o więcej niż 40 stopni względem pionu, aplikacja uznaje to za błąd. Trener mówi wtedy "Wyprostuj plecy!", a powtórzenie zostaje spalone.
+
 ---
 
 ## 2. Diagram Przypadków Użycia (Use Case Diagram)
